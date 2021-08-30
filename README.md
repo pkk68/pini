@@ -7,19 +7,20 @@ pini is tiny tool to diagnose and analyze the running of docker, container and s
 ## Overview - Tổng quan
 
 Kiểm tra thông tin chi tiết của hệ điều hành Windows hiện tại
-_Check detail status of current Windows OS
+
+_Check detail status of current Windows OS_
 
 Kiểm tra trạng thái của 3-10 cổng mặc định của ứng dụng Pi node
-_Check 3-10 major port numbers of Pi node
+_Check 3-10 major port numbers of Pi node_
 
 Kiểm tra thông tin chi tiết của docker, Pi node, vpnkit, vmmmem, wsl
-_Check detail status of docker, Pi, vpnkit, vmmem, wsl
+_Check detail status of docker, Pi, vpnkit, vmmem, wsl_
 
 Kiểm tra và phân tích thông tin chi tiết của pi-consensus
-_Diagnose and analyze the status of pi-consensus
+_Diagnose and analyze the status of pi-consensus_
 
 Lưu lại kết quả để tham khảo
-_Save to file for reference
+_Save to file for reference_
 
 ## Usage - Cách dùng
 Tải ứng dụng về máy, cụ thể lưu ở ổ đĩa C:, sau đó bấm chuột phải chọn" Run with Powershell".
