@@ -14,7 +14,7 @@ Kiểm tra trạng thái của 3-10 cổng mặc định của ứng dụng Pi n
 
 _Check 3-10 major port numbers of Pi node_
 
-Kiểm tra thông tin chi tiết của docker, Pi node, vpnkit, vmmmem, wsl
+Kiểm tra thông tin chi tiết của docker, Pi node, vpnkit, vmmem, wsl
 
 _Check detail status of docker, Pi, vpnkit, vmmem, wsl_
 
