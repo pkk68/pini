@@ -42,36 +42,36 @@ $help = @"
  
     Options:         
         -v,--verbose    Verbose     Debug information for further investigation
-        -h,--help   	  Help        Prints helper
+        -h,--help         Help        Prints helper
 "@
 
 function Parse-Option ($argv, $options)
 {
-	$opts = @()
-	if (!$argv) { return $null }
-	
-	foreach ($arg in $argv)
+    $opts = @()
+    if (!$argv) { return $null }
+    
+    foreach ($arg in $argv)
   {
       if ($arg -like '-*') { $opts += $arg }
-	}
-	$argv = [Collections.ArrayList]$argv
-	if ($opts) 
+    }
+    $argv = [Collections.ArrayList]$argv
+    if ($opts) 
   { 
-		foreach ($opt in $opts)
+        foreach ($opt in $opts)
     { 
-			if ($opt -eq '-v' -or $opt -eq '--verbose')
-			{
-				$options.opt1 = [bool] 1
-			}
-			else
-			{
-				Write-Host $help -ForegroundColor Cyan
-				break 1;
-			}
-			$argv.Remove($opt)
-		}
-	}           
-	return [array]$argv,$options
+            if ($opt -eq '-v' -or $opt -eq '--verbose')
+            {
+                $options.opt1 = [bool] 1
+            }
+            else
+            {
+                Write-Host $help -ForegroundColor Cyan
+                break 1;
+            }
+            $argv.Remove($opt)
+        }
+    }           
+    return [array]$argv,$options
 }
 
 function Write-Log
@@ -85,16 +85,16 @@ function Run-Command ($command)
 
     if ($command[0] -eq '"')
     {
-		    Invoke-Expression "& $command"
+            Invoke-Expression "& $command"
     }
     else
     {
-		    Invoke-Expression $command
+            Invoke-Expression $command
     }
 }
 
-function Is-AppRunning ($opt)		
-{		
+function Is-AppRunning ($opt)       
+{       
     if ([string]::IsNullOrEmpty($opt)) {Write-Error "ERROR: Invalid application"}
     Get-Process $opt | Out-Null
     if (-Not $?)
@@ -104,7 +104,7 @@ function Is-AppRunning ($opt)
     }
 }
 
-function Check-PiPort ($addr, $paddr)		
+function Check-PiPort ($addr, $paddr)       
 {
     $text=-join("Check default opened Pi ports for ", [string]$addr, [string]$paddr)
     Write-Log $text
@@ -391,7 +391,8 @@ docker exec -ti $PICONTAINER bash -c "stellar-core http-command info" | Out-File
 if (-Not (Test-Path -Path $Ftmp -PathType Leaf))
 {
     Write-Error "ERROR: Cannot fetch pi-consensus information"
-    exit 1
+    Remove-Item -Path .\tmp*.tmp -Force
+    throw "exit"
 }
 (Get-Content $Ftmp | Select-Object -Skip 12) | Set-Content $Ftmp
 $ff = $Ftmp
@@ -423,7 +424,6 @@ $dockerContainerCommand = "port", "inspect"
 $dockerContainerCommand | ForEach-Object {Write-Host "$_ " -NoNewline; dockerWrapper2($_)}
 
 # Displays system wide information regarding the Docker installation.
-Write-Host "docker -D info"
 $dockerCommand = "-D info", "context ls", "network ls --no-trunc", "ps --all --size"
 $dockerCommand | ForEach-Object {Write-Host "$_ " -NoNewline; dockerWrapper($_)}
 
@@ -629,7 +629,6 @@ Write-Host "Done! Double check log at $LogFile ..."
 dir $Logfile
 if (Test-Path -Path $Ftmp -PathType Leaf)
 {
-    #Remove-Item -Path .\tmp*.tmp -Force
     Remove-Item -Path $Ftmp -Force
 }
 Write-Host ""
