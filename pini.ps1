@@ -40,9 +40,9 @@ $help = @"
  
     Pi Node script tool to collect Pi Node information
  
-    Options:         
+    Options:
         -v,--verbose    Verbose     Debug information for further investigation
-        -h,--help         Help        Prints helper
+        -h,--help       Help        Prints helper
 "@
 
 function Parse-Option ($argv, $options)
@@ -416,7 +416,7 @@ else
 Write-Host "`n"
 
 Write-Log "docker exec -ti $PICONTAINER stellar-core http-command ll?level=debug"
-$s=docker exec -ti $PICONTAINER stellar-core http-command ll?level=debug
+$s = docker exec -ti $PICONTAINER stellar-core http-command ll?level=debug
 $s | Out-File -Append -Encoding utf8 -FilePath $LogFile
 
 # List port mappings or a specific mapping for the container
@@ -432,7 +432,7 @@ $stellarHttpCommand = "info", "peers", "bans", "metrics", "quorum", "quorum?tran
 $stellarHttpCommand | ForEach-Object { Write-Host "$_ " -NoNewline; dshWrapper($_)}
 
 Write-Log "Get-PSDrive C"
-$s=Get-PSDrive C
+$s = Get-PSDrive C
 $s | Out-File -Append -Encoding utf8 -FilePath $LogFile
 
 Write-Host "`n"
@@ -505,10 +505,9 @@ else
 {
     if ($tmp -match "Catching up" -or $tmp -match "Joining SCP")
     {
-        $tmp = bash -c "cat $f | grep checkpoints"
+        $tmp = bash -c "cat $ff | grep checkpoints"
         if ([string]::IsNullOrEmpty($tmp))
         {
-            Write-Host "$tmp"
             Write-Host "ERROR: Cannot checkpoints" -ForegroundColor Red
         }
         else
