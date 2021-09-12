@@ -36,8 +36,14 @@ Lưu ý: Cần cho phép ứng dụng được phép chạy trong Powershell
 _Note: Run as Administrator in Powershell if any._
 
 Execution Policy Change
+
 Set-ExecutionPolicy unrestricted
+
 The execution policy helps protect you from scripts that you do not trust. Changing the execution policy might expose
 you to the security risks described in the about_Execution_Policies help topic at
 http://go.microsoft.com/fwlink/?LinkID=135170. Do you want to change the execution policy?
 [Y] Yes  [A] Yes to All  [N] No  [L] No to All  [S] Suspend  [?] Help (default is "N"): **Y**
+
+
+## Screenshot - Hình chụp
+[![pini](https://github.com/pkk68/pini/blob/7b23b5f185675bb04709fb4c00c950f1eaefe2e7/github-pini-screenshot.png)]
