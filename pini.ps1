@@ -7,6 +7,7 @@ Set-Variable -Name HTTP_PORT -Value "11626" -Option Constant, AllScope -Force
 
 $PIDIR = "C:\Users\$env:UserName\AppData\Roaming\Pi Network"
 $PiNodeEntry = @{ NodeName = "GD"; `
+NodeType = " watcher"; `
 StellarBuild = "StellarCoreBuild"; `
 ErrorRate = "0"; `
 NetworkPhase = "Pi Testnet"; `
@@ -29,18 +30,20 @@ $global:verbose=$false
 $global:computerip=$null
 $global:routerip=$null
 $global:computername=$null
-$VERSION = "0.01.20210606"
+$VERSION = "0.02.20210913"
+$StellarConfig = "$PIDIR\docker_volumes\stellar\core\etc\stellar-core.cfg"
+
 $options = @{
-        opt1 = [bool] 0
+    opt1 = [bool] 0
 }
 $help = @"
     PINode Information usage: pini [-h] [-v]
  
-    Pi Node Information v.0.01.20210606
+    Pi Node Information v.0.02.20210913
  
     Pi Node script tool to collect Pi Node information
  
-    Options:
+    Options:         
         -v,--verbose    Verbose     Debug information for further investigation
         -h,--help       Help        Prints helper
 "@
@@ -51,14 +54,14 @@ function Parse-Option ($argv, $options)
     if (!$argv) { return $null }
     
     foreach ($arg in $argv)
-  {
-      if ($arg -like '-*') { $opts += $arg }
+    {
+        if ($arg -like '-*') { $opts += $arg }
     }
     $argv = [Collections.ArrayList]$argv
     if ($opts) 
-  { 
+    {
         foreach ($opt in $opts)
-    { 
+        {
             if ($opt -eq '-v' -or $opt -eq '--verbose')
             {
                 $options.opt1 = [bool] 1
@@ -70,7 +73,7 @@ function Parse-Option ($argv, $options)
             }
             $argv.Remove($opt)
         }
-    }           
+    }
     return [array]$argv,$options
 }
 
@@ -85,11 +88,11 @@ function Run-Command ($command)
 
     if ($command[0] -eq '"')
     {
-            Invoke-Expression "& $command"
+        Invoke-Expression "& $command"
     }
     else
     {
-            Invoke-Expression $command
+        Invoke-Expression $command
     }
 }
 
@@ -111,7 +114,7 @@ function Check-PiPort ($addr, $paddr)
     $PortRange = 31400..31409
     if ($global:verbose -eq $false)
     {
-         $PortRange = 31401..31403
+        $PortRange = 31401..31403
     }
     Write-Host "Checking default Pi ports status for$addr $paddr..."
     $cn = $computername
@@ -386,6 +389,18 @@ $StellarCore = docker exec -ti $PICONTAINER bash -c "curl localhost:$HTTP_PORT"
 if ([string]::IsNullOrEmpty($StellarCore)) {Write-Warning "stellar-core main page cannot be fetched"}
 $StellarCore | Out-File -Append -Encoding utf8 -FilePath $LogFile
 
+# According to Stellar documenation, currently we have 03 type of nodes:
+# archiver (watcher), basic and full validator
+$PiNodeEntry["NodeType"] = " watcher"
+if (Test-Path -Path $StellarConfig -PathType Leaf)
+{
+    # https://developers.stellar.org/docs/run-core-node/
+    # https://developers.stellar.org/docs/run-core-node/configuring/
+    $tmp = Get-ChildItem -Path $StellarConfig | Select-String -Pattern 'NODE_IS_VALIDATOR=' -CaseSensitive
+    $type = ($tmp -split '=')[1]
+    if ($type -eq "true") {$PiNodeEntry["NodeType"] = " validator"}
+}
+
 Write-Host "`nChecking Pi node & pi-consensus..."
 docker exec -ti $PICONTAINER bash -c "stellar-core http-command info" | Out-File -Append -Encoding utf8 -FilePath $Ftmp
 if (-Not (Test-Path -Path $Ftmp -PathType Leaf))
@@ -407,8 +422,10 @@ $text = " instance is connecting to"
 if ([string]::IsNullOrEmpty($PiNodeEntry["NodeName"])) {Write-Host "$CurrentNodeName"}
 else
 {
-    $t=-join(" ", $PiNodeEntry["NodeName"])
-    Write-Host $t -NoNewline -f Green 
+    $name=-join(" ", $PiNodeEntry["NodeName"])
+    Write-Host $name -NoNewline -f Green
+    Write-Host $PiNodeEntry["NodeType"] -NoNewline -f Magenta
+    $t=-join(" ", $PiNodeEntry["NodeName"], " ", $PiNodeEntry["NodeType"])
     $tt=-join($Splash, $t, $text, $PiNodeEntry["NetworkPhase"])
     Write-Log $tt
     Write-Host $text $PiNodeEntry["NetworkPhase"]
@@ -503,12 +520,14 @@ $tmp = Get-ConsensusValue $ff $key
 if ([string]::IsNullOrEmpty($tmp)) {Write-Host "ERROR: Cannot check state" -ForegroundColor Red}
 else
 {
+    #Write-Host "$tmp"
     if ($tmp -match "Catching up" -or $tmp -match "Joining SCP")
     {
         $tmp = bash -c "cat $ff | grep checkpoints"
         if ([string]::IsNullOrEmpty($tmp))
         {
-            Write-Host "ERROR: Cannot checkpoints" -ForegroundColor Red
+            Write-Host "Warning: Catching or joining SCP state" -ForegroundColor Red
+            $tmp = "Catching up"
         }
         else
         {
@@ -537,6 +556,7 @@ Write-Log "Number of missing node:$tmp"
 
 $key = "agree"
 $tmp = Get-ConsensusValue $ff $key
+if ([string]::IsNullOrEmpty($tmp)) {$tmp = 0; Write-Host "ERROR: Cannot check node agreed" -ForegroundColor Red}
 $PiNodeEntry["QuorumNodeAgreed"] = $tmp
 switch ([int]$tmp)
 {
@@ -551,6 +571,7 @@ Write-Log $text
 
 $key = "lag_ms"
 $tmp = Get-ConsensusValue $ff $key
+if ([string]::IsNullOrEmpty($tmp)) {Write-Host "ERROR: Cannot check network latency" -ForegroundColor Red}
 switch ([int]$tmp)
 {
     # G. 114 [protocol] recommendation
@@ -608,7 +629,7 @@ if (Test-Path -Path $UserPreferences -PathType Leaf)
     Get-Content $UserPreferences | Out-File -Append -Encoding utf8 -FilePath $LogFile
 }
 Write-Log " "
-$StellarConfig = "$PIDIR\docker_volumes\stellar\core\etc\stellar-core.cfg"
+
 if (Test-Path -Path $StellarConfig -PathType Leaf)
 {
     Get-Content $StellarConfig | Out-File -Append -Encoding utf8 -FilePath $LogFile
@@ -616,7 +637,7 @@ if (Test-Path -Path $StellarConfig -PathType Leaf)
 Write-Log ""
 if ($global:verbose -eq $true)
 {
-    Write-Host "Saving log...Wait 2 minutes please"
+    Write-Host "Saving Node Id to log...Wait 2 minutes please"
     # Backticks for line breaks
     dir $PIDIR\docker_volumes\stellar\postgresql\data\base -Recurse | `
         Select-String -pattern $PiNodeEntry["NodeName"] | `
@@ -628,6 +649,7 @@ Write-Host "Done! Double check log at $LogFile ..."
 dir $Logfile
 if (Test-Path -Path $Ftmp -PathType Leaf)
 {
+    #Remove-Item -Path .\tmp*.tmp -Force
     Remove-Item -Path $Ftmp -Force
 }
 Write-Host ""
