@@ -18,7 +18,7 @@ Kiểm tra thông tin chi tiết của docker, Pi node, vpnkit, vmmem, wsl
 
 _Check detail status of docker, Pi, vpnkit, vmmem, wsl_
 
-Kiểm tra và phân tích thông tin chi tiết của pi-consensus
+Kiểm tra và phân tích thông tin chi tiết của pi-consensus, testnet2
 
 _Diagnose and analyze the status of pi-consensus_
 
@@ -46,4 +46,4 @@ http://go.microsoft.com/fwlink/?LinkID=135170. Do you want to change the executi
 
 
 ## Screenshot - Hình chụp
-[![pini](https://github.com/pkk68/pini/blob/7b23b5f185675bb04709fb4c00c950f1eaefe2e7/github-pini-screenshot.png)]
+[![pini](https://github.com/pkk68/pini/blob/main/2024-10-21%2022_01_42-Administrator_%20Windows%20PowerShell.png)]
