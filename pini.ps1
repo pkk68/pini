@@ -1,8 +1,15 @@
 #requires -version 5.0
+# 
+# Revision:
+#   2024-10-18: 0.03.20241018 - testnet2
+#   2021-09-13: 0.02.20210913 - pi-consensus - testnet1
+#
 $DATE = Get-Date
 $FileLogDate = (Get-Date -f yyyy-MM-dd-HH-mm-ss)
 $global:CurrentNodeName = "PiNode"
-Set-Variable -Name PICONTAINER -Value "pi-consensus" -Option Constant, AllScope -Force
+#$global:CurrentContainer = "pi-consensus"
+$global:CurrentContainer = "testnet2"
+Set-Variable -Name PICONTAINER -Value $global:CurrentContainer -Option Constant, AllScope -Force
 Set-Variable -Name HTTP_PORT -Value "11626" -Option Constant, AllScope -Force
 
 $PIDIR = "C:\Users\$env:UserName\AppData\Roaming\Pi Network"
@@ -10,7 +17,7 @@ $PiNodeEntry = @{ NodeName = "GD"; `
 NodeType = " watcher"; `
 StellarBuild = "StellarCoreBuild"; `
 ErrorRate = "0"; `
-NetworkPhase = "Pi Testnet"; `
+NetworkPhase = "Pi Testnet2"; `
 LedgeAge = "1"; `
 LocalBlkNum = "3000000"; `
 QuorumLedger = "3000000"; `
@@ -30,8 +37,14 @@ $global:verbose=$false
 $global:computerip=$null
 $global:routerip=$null
 $global:computername=$null
-$VERSION = "0.02.20210913"
-$StellarConfig = "$PIDIR\docker_volumes\stellar\core\etc\stellar-core.cfg"
+$VERSION = "0.03.20241018"
+# testnet1 working directory
+# $StellarConfig = "$PIDIR\docker_volumes\stellar\core\etc\stellar-core.cfg"
+# testnet2 working directory
+$t2="testnet_2"
+$StellarConfig = "$PIDIR\docker_volumes\$t2\stellar\core\etc\stellar-core.cfg"
+$Ptmp = ".\peer-$FileLogDate.tmp"
+$global:OutputFile = ".\PeerIP-$FileLogDate.csv"
 
 $options = @{
     opt1 = [bool] 0
@@ -39,7 +52,7 @@ $options = @{
 $help = @"
     PINode Information usage: pini [-h] [-v]
  
-    Pi Node Information v.0.02.20210913
+    Pi Node Information v.0.03.20241018
  
     Pi Node script tool to collect Pi Node information
  
@@ -81,6 +94,26 @@ function Write-Log
 {
     Param ([string]$logstring)
     Add-content $LogFile -value $logstring
+}
+
+function Save-TextToLogFile
+{
+    param ([string]$Text, [string]$Log)
+
+    # Check if the text file exists
+    if (Test-Path $Text)
+    {
+        # Read the content of the text file
+        $content = Get-Content $Text
+        
+        # Append the content to the log file
+        Add-Content -Path $Log -Value $content
+        #Write-Host "Content saved to log file: $Log"
+    }
+    else
+    {
+        Write-Host "Text file does not exist: $Text"
+    }
 }
 
 function Run-Command ($command)
@@ -236,12 +269,19 @@ function Get-OSInformation
     
     # Docker 3.5.2 version 20.10.7, build f0df350
     # Docker 3.6.0 version 20.10.8, build 3967b7d
+    Write-Log "-> docker --version"
     $d = docker --version
     $d | Out-File -Append -Encoding utf8 -FilePath $LogFile
     Write-Host "$d"
+    Write-Log "-> docker version"
     $d = docker version
     $d | Out-File -Append -Encoding utf8 -FilePath $LogFile
+    Write-Log "List all containers"
+    $d = docker ps -a
+    $d | Out-File -Append -Encoding utf8 -FilePath $LogFile
+    Write-Host "$d"
 
+    Write-Log "-> docker-compose  --version"
     $d = docker-compose  --version
     $d | Out-File -Append -Encoding utf8 -FilePath $LogFile
     Write-Host "$d"
@@ -249,7 +289,12 @@ function Get-OSInformation
     Write-Host "           Pi App & vmmem"
     Is-AppRunning("vmmem")
     Is-AppRunning("Pi Network")
+    Is-AppRunning("wsl")
+    Write-Log "wsl --list --verbose"
+    $d = wsl --list --verbose
+    $d | Out-File -Append -Encoding utf8 -FilePath $LogFile
     Write-Host "           " -NoNewLine
+    
 }
 
 function Get-PiProcess ($opt)
@@ -266,22 +311,24 @@ function dshWrapper ($opt)
 {
     $cc="docker exec -ti $PICONTAINER stellar-core http-command"
     $c = -join($cc, " ", $opt)
-    Write-Log "$c"
+    Write-Log "-> $c"
     Run-Command($c) | Out-File -Append -Encoding utf8 -FilePath $LogFile
 }
+
 function dockerWrapper ($opt)
 {
     Write-Host ""
     $cc="docker "
     $c = -join($cc, " ", $opt)
-    Write-Log "$c"
+    Write-Log "-> $c"
     Run-Command($c) | Out-File -Append -Encoding utf8 -FilePath $LogFile
 }
+
 function dockerWrapper2 ($opt)
 {
     $cc="docker "
     $c = -join($cc, " ", $opt, " ", $PICONTAINER)
-    Write-Log "$c"
+    Write-Log "-> $c"
     Run-Command($c) | Out-File -Append -Encoding utf8 -FilePath $LogFile
 }
 
@@ -354,10 +401,112 @@ function Backup-Files ($file, $log)
     Write-Log ""
 }
 
+function Start-Sleeps($seconds)
+{
+    $doneDT = (Get-Date).AddSeconds($seconds)
+    while($doneDT -gt (Get-Date))
+    {
+        $secondsLeft = $doneDT.Subtract((Get-Date)).TotalSeconds
+        $percent = ($seconds - $secondsLeft) / $seconds * 100
+        Write-Progress -Activity "Sleeping" -Status "Sleeping..." -SecondsRemaining $secondsLeft -PercentComplete $percent
+        [System.Threading.Thread]::Sleep(500)
+    }
+    Write-Progress -Activity "Sleeping" -Status "Sleeping..." -SecondsRemaining 0 -Completed
+}
+
+function Sleep-Progress($seconds)
+{
+    $s = 0
+    do
+    {
+        $p = [math]::Round(100 - (($seconds - $s) / $seconds * 100));
+        Write-Progress -Activity "Waiting..." -Status "$p% Complete:" -SecondsRemaining ($seconds - $s) -PercentComplete $p;
+        [System.Threading.Thread]::Sleep(500)
+        $s++
+    }
+    while($s -lt $seconds)
+}    
+
+
+function Get-IPInfo
+{
+  Param([string]$IPAddress) 
+  $request = Invoke-RestMethod -Method Get -Uri "http://ip-api.com/json/$IPAddress"
+  [PSCustomObject]@{
+    IP      = $request.query
+    City    = $request.city
+    Zip     = $request.zip
+    Country = $request.country
+    Isp     = $request.isp
+  }
+}
+
+function Get-PeerData ([int]$AuthenPeer)
+{
+    Write-Log "-> docker exec -ti $PICONTAINER stellar-core http-command peers"
+    $d = docker exec -ti $PICONTAINER stellar-core http-command peers
+    $d | Out-File -Append -Encoding utf8 -FilePath $LogFile
+    $d | Out-File -Append -Encoding utf8 -FilePath $Ptmp
+    (Get-Content $Ptmp | Select-Object -Skip 12) | Set-Content $Ptmp
+
+    $Results = @()
+    $Hosts = @()
+    if (-Not (Test-Path -Path $Ptmp -PathType Leaf))
+    {
+        Write-Log "WARNING: Cannot create peer temp file"
+        Remove-Item -Path ".\peer*.tmp" -Force
+        return;
+    }
+    $Lines =  Get-Content $Ptmp
+    #Checking each line for each ip address
+    foreach ($Line in $Lines)
+    {
+        $IP = $Object1 = $null
+        $IP = ($Line  |  Select-String -Pattern "\d{1,3}(\.\d{1,3}){3}" -AllMatches).Matches.Value
+        # Invalid ip addr format or default pi network gateway
+        if ([string]::IsNullOrEmpty($IP) -or $IP -match "172.17.0.1") {Write-Host "." -NoNewLine}
+        elseif($IP -notmatch "0.0.0.0")
+        {
+            # Valid ip addr
+            $Object1 = New-Object PSObject -Property @{ 
+            IPAddress = $IP
+            }
+            $Results += $Object1
+        }
+    }
+    #Check ip duplication
+    $IPUnique = $Results | Select-Object IPAddress -Unique
+    $i = 0
+    #Check full ip address data
+    foreach ($Item in $IPUnique)
+    { 
+        $i++
+        if ($i -gt 20)
+        {
+            # Just loop a set of 20 ip addresses only
+            # then wait for max 8 outgoing connections
+ 
+            # Wait 1 min
+            #Start-Sleep -Seconds 60
+            Sleep-Progress 60
+            $i = 0
+        }
+        Get-IPInfo($Item.IPAddress) | Select-Object IP, City, Zip, Country, Isp | Export-Csv $global:OutputFile -NoTypeInformation -Append
+        if ($i -gt [int]$AuthenPeer -and $global:verbose -eq $false)
+        {
+            break;
+        }
+        #Write-Host "." -NoNewLine 
+    }
+    Remove-Item -Path $Ptmp -Force
+}
+
+
 ###############################################################################
 #                       S C R I P T  E X E C U T I O N                        #
 ###############################################################################
 $Title = "Pi node information v$VERSION"
+$Title2 = "     with latest protocol 18 for $global:CurrentContainer"
 
 
 $argv,$options = Parse-Option $args $options
@@ -366,14 +515,17 @@ if ($options.opt1)
     $global:verbose=$true
 }
 
-New-Item -Path 'C:\' -Name "$CurrentNodeName-$FileLogDate.txt" -ItemType File | Out-Null
-$LogFile = "C:\$CurrentNodeName-$FileLogDate.txt"
-$Ftmp = "tmp$(get-date -Format 'yyyy-MMM-dd-hh-mm-ss-tt').tmp"
+New-Item -Path 'C:\' -Name "$global:CurrentNodeName-$FileLogDate.txt" -ItemType File | Out-Null
+$LogFile = "C:\$global:CurrentNodeName-$FileLogDate.txt"
+$Ftmp = "tmp$(Get-Date -Format 'yyyy-MMM-dd-hh-mm-ss-tt').tmp"
+$Ptmp = "peer$(Get-Date -Format 'yyyy-MMM-dd-hh-mm-ss-tt').tmp"
 
 Write-Host ""
 Write-Host $Title -ForegroundColor Magenta
+Write-Host $Title2 -ForegroundColor Magenta
 Write-Host ""
 Write-Log $Title
+Write-Log $Title2
 
 Get-OSInformation
 
@@ -391,21 +543,32 @@ $StellarCore | Out-File -Append -Encoding utf8 -FilePath $LogFile
 
 # According to Stellar documenation, currently we have 03 type of nodes:
 # archiver (watcher), basic and full validator
+# you will still watch SCP and see all the data in the network but will not send validation messages.
 $PiNodeEntry["NodeType"] = " watcher"
 if (Test-Path -Path $StellarConfig -PathType Leaf)
 {
     # https://developers.stellar.org/docs/run-core-node/
     # https://developers.stellar.org/docs/run-core-node/configuring/
+    # https://github.com/stellar/stellar-core/blob/master/docs/software/admin.md
     $tmp = Get-ChildItem -Path $StellarConfig | Select-String -Pattern 'NODE_IS_VALIDATOR=' -CaseSensitive
     $type = ($tmp -split '=')[1]
     if ($type -eq "true") {$PiNodeEntry["NodeType"] = " validator"}
 }
 
-Write-Host "`nChecking Pi node & pi-consensus..."
-docker exec -ti $PICONTAINER bash -c "stellar-core http-command info" | Out-File -Append -Encoding utf8 -FilePath $Ftmp
+Write-Host "`nChecking Pi node & $global:CurrentContainer container ..."
+# "info", "peers", "bans", "metrics", "quorum", "quorum?transitive=true", "getcursor", "scp"
+# set the log level
+Write-Log "-> docker exec -ti $PICONTAINER stellar-core http-command ll?level=debug"
+$s = docker exec -ti $PICONTAINER stellar-core http-command ll?level=debug
+$s | Out-File -Append -Encoding utf8 -FilePath $LogFile
+
+Write-Log "-> docker exec -ti $PICONTAINER stellar-core http-command info"
+$cmd = docker exec -ti $PICONTAINER bash -c "stellar-core http-command info"
+$cmd | Out-File -Append -Encoding utf8 -FilePath $LogFile
+$cmd | Out-File -Append -Encoding utf8 -FilePath $Ftmp
 if (-Not (Test-Path -Path $Ftmp -PathType Leaf))
 {
-    Write-Error "ERROR: Cannot fetch pi-consensus information"
+    Write-Error "ERROR: Cannot fetch $global:CurrentContainer information"
     Remove-Item -Path .\tmp*.tmp -Force
     throw "exit"
 }
@@ -419,7 +582,7 @@ $key = "network"
 $PiNodeEntry["NetworkPhase"] = Get-ConsensusValue $ff $key
 
 $text = " instance is connecting to"
-if ([string]::IsNullOrEmpty($PiNodeEntry["NodeName"])) {Write-Host "$CurrentNodeName"}
+if ([string]::IsNullOrEmpty($PiNodeEntry["NodeName"])) {Write-Host "$global:CurrentNodeName"}
 else
 {
     $name=-join(" ", $PiNodeEntry["NodeName"])
@@ -432,15 +595,12 @@ else
 }
 Write-Host "`n"
 
-Write-Log "docker exec -ti $PICONTAINER stellar-core http-command ll?level=debug"
-$s = docker exec -ti $PICONTAINER stellar-core http-command ll?level=debug
-$s | Out-File -Append -Encoding utf8 -FilePath $LogFile
-
 # List port mappings or a specific mapping for the container
 $dockerContainerCommand = "port", "inspect"
 $dockerContainerCommand | ForEach-Object {Write-Host "$_ " -NoNewline; dockerWrapper2($_)}
 
 # Displays system wide information regarding the Docker installation.
+#   show all containers with its size
 $dockerCommand = "-D info", "context ls", "network ls --no-trunc", "ps --all --size"
 $dockerCommand | ForEach-Object {Write-Host "$_ " -NoNewline; dockerWrapper($_)}
 
@@ -517,7 +677,7 @@ Write-Host2-With-Color -text "Quorum state:", $PiNodeEntry["QuorumIntersection"]
 # We have 04 states i.e: N/A, Catching up, Joining SCP, Synced!
 $key = "state"
 $tmp = Get-ConsensusValue $ff $key
-if ([string]::IsNullOrEmpty($tmp)) {Write-Host "ERROR: Cannot check state" -ForegroundColor Red}
+if ([string]::IsNullOrEmpty($tmp)) {$tmp = "N/A"; Write-Host "ERROR: Cannot check state" -ForegroundColor Red}
 else
 {
     #Write-Host "$tmp"
@@ -526,8 +686,8 @@ else
         $tmp = bash -c "cat $ff | grep checkpoints"
         if ([string]::IsNullOrEmpty($tmp))
         {
-            Write-Host "Warning: Catching or joining SCP state" -ForegroundColor Red
-            $tmp = "Catching up"
+            Write-Host "Warning: Catching or Joining SCP state" -ForegroundColor Red
+            $tmp = " Catching up"
         }
         else
         {
@@ -565,27 +725,29 @@ switch ([int]$tmp)
     2 {$state = "Yellow"}
     default {$state = "Green"}
 }
-$text=-join("Now", $tmp, " Pi node(s) agreed with yours")
+$text=-join("Now ", $tmp, " Pi node(s) agreed with yours")
 Write-Host $text -ForegroundColor $state
 Write-Log $text
 
 $key = "lag_ms"
 $tmp = Get-ConsensusValue $ff $key
 if ([string]::IsNullOrEmpty($tmp)) {Write-Host "ERROR: Cannot check network latency" -ForegroundColor Red}
-switch ([int]$tmp)
+else
 {
-    # G. 114 [protocol] recommendation
-    {$_ -le 150} {$state = "Green"}
-    {$_ -ge 151 -and $_ -le 230} {$state = "Yellow"}
-    {$_ -ge 231 -and $_ -le 330} {$state = "Red"}
-    {$_ -ge 331 -and $_ -le 530} {$state = "Magenta"}
-    default {$state = "DarkMagenta"}
+    switch ([int]$tmp)
+    {
+        # G. 114 [protocol] recommendation
+        {$_ -le 150} {$state = "Green"}
+        {$_ -ge 151 -and $_ -le 230} {$state = "Yellow"}
+        {$_ -ge 231 -and $_ -le 330} {$state = "Red"}
+        {$_ -ge 331 -and $_ -le 530} {$state = "Magenta"}
+        default {$state = "DarkMagenta"}
+    }
+    $PiNodeEntry["NetworkLatency"] = $tmp
+    $text=-join("Network latency:", [string]$PiNodeEntry["NetworkLatency"], "ms")
+    Write-Host2-With-Color -text "Network latency: ", $PiNodeEntry["NetworkLatency"], " ms" -color White, "$state", White
+    Write-Log $text
 }
-$PiNodeEntry["NetworkLatency"] = $tmp
-$text=-join("Network latency:", [string]$PiNodeEntry["NetworkLatency"], "ms")
-Write-Host2-With-Color -text "Network latency: ", $PiNodeEntry["NetworkLatency"], " ms" -color White, "$state", White
-Write-Log $text
-
 Write-Host ""
 Write-Host "Docker NETwork Input/Output"
 # "table {{.ID}}\t{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}\t{{.BlockIO}}"
@@ -623,13 +785,23 @@ $s | Out-File -Append -Encoding utf8 -FilePath $LogFile
 $dockerContainerCommand = "logs --details"
 $dockerContainerCommand | ForEach-Object {dockerWrapper2($_)}
 
-$UserPreferences = "$PIDIR\user-preferences.json"
-if (Test-Path -Path $UserPreferences -PathType Leaf)
-{
-    Get-Content $UserPreferences | Out-File -Append -Encoding utf8 -FilePath $LogFile
-}
+Write-Log "User preferences json file"
+Save-TextToLogFile -Text "$PIDIR\user-preferences.json" -Log $LogFile
 Write-Log " "
 
+Write-Log "Docker compose json file"
+Save-TextToLogFile -Text "$PIDIR\docker-compose.json" -Log $LogFile
+Write-Log " "
+
+Write-Log "testnet2 env file"
+Save-TextToLogFile -Text "$PIDIR\testnet2.env" -Log $LogFile
+Write-Log " "
+
+Write-Log "stellar env file"
+Save-TextToLogFile -Text "$PIDIR\stellar.env" -Log $LogFile
+Write-Log " "
+
+# stellar\core\etc\stellar-core.cfg
 if (Test-Path -Path $StellarConfig -PathType Leaf)
 {
     Get-Content $StellarConfig | Out-File -Append -Encoding utf8 -FilePath $LogFile
@@ -637,15 +809,23 @@ if (Test-Path -Path $StellarConfig -PathType Leaf)
 Write-Log ""
 if ($global:verbose -eq $true)
 {
-    Write-Host "Saving Node Id to log...Wait 2 minutes please"
+    Write-Host "Saving Node Id, peer ipaddr to log...Wait a moment please"
     # Backticks for line breaks
-    dir $PIDIR\docker_volumes\stellar\postgresql\data\base -Recurse | `
+    #dir $PIDIR\docker_volumes\stellar\postgresql\data\base -Recurse | `
+    # testnet1
+    #dir $PIDIR\docker_volumes\stellar\postgresql\data\base | `
+    # testnet2
+    dir $PIDIR\docker_volumes\$t2\stellar\postgresql\data\base | `
         Select-String -pattern $PiNodeEntry["NodeName"] | `
         Select-Object -Last 1 | `
         Out-File -Append -Encoding utf8 -FilePath $LogFile
+        
 }
 
-Write-Host "Done! Double check log at $LogFile ..."
+# Check authenticated peer ip addresses
+Get-PeerData ($PiNodeEntry["AuthenPeers"])
+
+Write-Host "`nDone! Double check log at $LogFile ..."
 dir $Logfile
 if (Test-Path -Path $Ftmp -PathType Leaf)
 {
