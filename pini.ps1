@@ -7,7 +7,11 @@
 $DATE = Get-Date
 $FileLogDate = (Get-Date -f yyyy-MM-dd-HH-mm-ss)
 $global:CurrentNodeName = "PiNode"
+# pinetwork/pi-node-docker:latest
 #$global:CurrentContainer = "pi-consensus"
+#
+# pinetwork/pi-node-docker:protocol18
+#
 $global:CurrentContainer = "testnet2"
 Set-Variable -Name PICONTAINER -Value $global:CurrentContainer -Option Constant, AllScope -Force
 Set-Variable -Name HTTP_PORT -Value "11626" -Option Constant, AllScope -Force
@@ -25,6 +29,7 @@ LastBlkNum = "3000000"; `
 QuorumState = "null"; `
 AuthenPeers = "64"; `
 PendingPeers = "8"; `
+ProtocolVersion = "19"; `
 ConsensusState = "Synced"; `
 QuorumNodeAgreed = "3"; `
 QuorumIntersection = "true"; `
@@ -138,6 +143,35 @@ function Is-AppRunning ($opt)
         $msg = "ERROR: $opt not found!"
         Write-Error -Message $msg -Category ObjectNotFound
     }
+}
+
+function Get-ValueFromKeyPattern
+{
+    param (
+        [string]$FilePath,
+        [string]$KeyPattern
+    )
+    
+    # Ensure the file exists
+    if (-not (Test-Path $FilePath))
+    {
+        Write-Error "File not found: $FilePath"
+        return
+    }
+    #Write-Host "Checking text file $FilePath with $KeyPattern"
+
+    # Read the file line by line
+    foreach ($line in Get-Content -Path $FilePath)
+    {
+        #Write-Host "Checking $line ..."
+        # Check if the line matches the key pattern
+        if ($line -match "$KeyPattern\s*[:=]\s*(.+)")
+        {
+            return $matches[1]
+        }
+    }
+
+    Write-Output "Key pattern not found in file."
 }
 
 function Check-PiPort ($addr, $paddr)       
@@ -269,6 +303,10 @@ function Get-OSInformation
     
     # Docker 3.5.2 version 20.10.7, build f0df350
     # Docker 3.6.0 version 20.10.8, build 3967b7d
+    # Turn off the "What's next?" message
+    # Settings | General | uncheck Show CLI hints
+    #   Show CLI hints
+    #   Get CLI hints and tips when running Docker commands in the CLI.
     Write-Log "-> docker --version"
     $d = docker --version
     $d | Out-File -Append -Encoding utf8 -FilePath $LogFile
@@ -292,9 +330,49 @@ function Get-OSInformation
     Is-AppRunning("wsl")
     Write-Log "wsl --list --verbose"
     $d = wsl --list --verbose
-    $d | Out-File -Append -Encoding utf8 -FilePath $LogFile
+    $d | Out-File -Append -Encoding ASCII -FilePath $LogFile
     Write-Host "           " -NoNewLine
     
+}
+
+function Get-CPUInfo
+{
+    <#
+    .SYNOPSIS
+        Returns CPU information including physical cores and logical processors.
+    
+    .DESCRIPTION
+        Uses Win32_Processor WMI class to query the number of cores and logical processors
+        across all CPUs. Works on Windows 10 and later.
+
+    .EXAMPLE
+        PS> Get-CPUInfo
+
+        PhysicalCores LogicalProcessors
+        ------------- -----------------
+                  8                16
+    #>
+
+    try
+    {
+        $cpuData = Get-CimInstance Win32_Processor
+
+        $physicalCores     = ($cpuData | Measure-Object -Property NumberOfCores -Sum).Sum
+        $logicalProcessors = ($cpuData | Measure-Object -Property NumberOfLogicalProcessors -Sum).Sum
+        Write-Log "physicalCores     $physicalCores"
+        Write-Log "logicalProcessors $logicalProcessors"
+        #Write-Host "physicalCores     $physicalCores"
+        #Write-Host "logicalProcessors $logicalProcessors"
+
+        [PSCustomObject]@{
+            PhysicalCores     = $physicalCores
+            LogicalProcessors = $logicalProcessors
+        }
+    }
+    catch
+    {
+        Write-Error "Failed to retrieve CPU info: $_"
+    }
 }
 
 function Get-PiProcess ($opt)
@@ -310,6 +388,14 @@ function Get-PiProcess ($opt)
 function dshWrapper ($opt)
 {
     $cc="docker exec -ti $PICONTAINER stellar-core http-command"
+    $c = -join($cc, " ", $opt)
+    Write-Log "-> $c"
+    Run-Command($c) | Out-File -Append -Encoding utf8 -FilePath $LogFile
+}
+
+function dshCore ($opt)
+{
+    $cc="docker exec -ti $PICONTAINER stellar-core"
     $c = -join($cc, " ", $opt)
     Write-Log "-> $c"
     Run-Command($c) | Out-File -Append -Encoding utf8 -FilePath $LogFile
@@ -506,7 +592,7 @@ function Get-PeerData ([int]$AuthenPeer)
 #                       S C R I P T  E X E C U T I O N                        #
 ###############################################################################
 $Title = "Pi node information v$VERSION"
-$Title2 = "     with latest protocol 18 for $global:CurrentContainer"
+#$Title2 = "     with latest protocol 19 for $global:CurrentContainer"
 
 
 $argv,$options = Parse-Option $args $options
@@ -522,12 +608,13 @@ $Ptmp = "peer$(Get-Date -Format 'yyyy-MMM-dd-hh-mm-ss-tt').tmp"
 
 Write-Host ""
 Write-Host $Title -ForegroundColor Magenta
-Write-Host $Title2 -ForegroundColor Magenta
+#Write-Host $Title2 -ForegroundColor Magenta
 Write-Host ""
 Write-Log $Title
-Write-Log $Title2
+#Write-Log $Title2
 
 Get-OSInformation
+Get-CPUInfo
 
 Write-Log "Windows PowerShell"
 $v = (Get-Host).Version
@@ -601,11 +688,14 @@ $dockerContainerCommand | ForEach-Object {Write-Host "$_ " -NoNewline; dockerWra
 
 # Displays system wide information regarding the Docker installation.
 #   show all containers with its size
-$dockerCommand = "-D info", "context ls", "network ls --no-trunc", "ps --all --size"
+$dockerCommand = "-D info", "context ls", "network ls --no-trunc", "image list", "ps --all --size"
 $dockerCommand | ForEach-Object {Write-Host "$_ " -NoNewline; dockerWrapper($_)}
 
 # Run a batch of stellar core http commands
-$stellarHttpCommand = "info", "peers", "bans", "metrics", "quorum", "quorum?transitive=true", "getcursor", "scp"
+$stellarHttpCommand = "info", "peers", "bans", "metrics", `
+                      "quorum", "quorum?transitive=true", `
+                      "getcursor", "scp", "upgrades?mode=get", `
+                      "ll"
 $stellarHttpCommand | ForEach-Object { Write-Host "$_ " -NoNewline; dshWrapper($_)}
 
 Write-Log "Get-PSDrive C"
@@ -660,10 +750,10 @@ $text=-join("Live outgoing/incoming connections:", [string]$PiNodeEntry["AuthenP
 Write-Host $text
 Write-Log $text
 
-$key = "history_failure_rate"
-$PiNodeEntry["ErrorRate"] = Get-ConsensusValue $ff $key
-$text=-join("Session error rate:", $PiNodeEntry["ErrorRate"])
-Write-Host $text
+$key = "protocol_version"
+$PiNodeEntry["ProtocolVersion"] = Get-ConsensusValue $ff $key
+$text=-join("Stellar-core protocol version:", [string]$PiNodeEntry["ProtocolVersion"])
+Write-Host2-With-Color -text "Stellar-core protocol version:", $PiNodeEntry["ProtocolVersion"] -color White, "Magenta"
 Write-Log $text
 
 $key = "critical"
@@ -777,6 +867,7 @@ switch ([int]$d)
 Write-Host2-With-Color -text "HDD free space: ", $d, " GB" -color White, "$state", Green
 Write-Log "HDD free space: $d GB"
 
+Write-Log " "
 Write-Log "netstat -aonb | findstr 3140"
 $s=(netstat -aonb | findstr 3140)
 $s | Out-File -Append -Encoding utf8 -FilePath $LogFile
@@ -802,13 +893,23 @@ Save-TextToLogFile -Text "$PIDIR\stellar.env" -Log $LogFile
 Write-Log " "
 
 # stellar\core\etc\stellar-core.cfg
+# https://github.com/stellar/stellar-core/blob/1812c4fc355cc1d878ad8e2bb62352f4e28cd2ea/docs/stellar-core_example.cfg#L203
+Write-Log "stellar core file stellar-core.cfg"
 if (Test-Path -Path $StellarConfig -PathType Leaf)
 {
-    Get-Content $StellarConfig | Out-File -Append -Encoding utf8 -FilePath $LogFile
+    Get-Content $StellarConfig -Raw | Out-File -Append -Encoding utf8 -FilePath $LogFile
 }
+
+$seed = Get-ValueFromKeyPattern -FilePath $StellarConfig -KeyPattern "NODE_SEED"
+Write-Log "Node seed $seed"
+# Run a batch of stellar core commands
+$dockerCoreCommand = "convert-id $seed", "version"
+$dockerCoreCommand | ForEach-Object {Write-Host "$_ " -NoNewline; dshCore($_)}
+
 Write-Log ""
 if ($global:verbose -eq $true)
 {
+    Write-Host "`n"
     Write-Host "Saving Node Id, peer ipaddr to log...Wait a moment please"
     # Backticks for line breaks
     #dir $PIDIR\docker_volumes\stellar\postgresql\data\base -Recurse | `
