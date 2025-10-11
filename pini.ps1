@@ -1,8 +1,11 @@
 #requires -version 5.0
 # 
 # Revision:
+#   2025-10-11: 0.03.20251011 - testnet2, vmmemwsl on win11
 #   2024-10-18: 0.03.20241018 - testnet2
 #   2021-09-13: 0.02.20210913 - pi-consensus - testnet1
+# dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart
+# dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart
 #
 $DATE = Get-Date
 $FileLogDate = (Get-Date -f yyyy-MM-dd-HH-mm-ss)
@@ -10,7 +13,7 @@ $global:CurrentNodeName = "PiNode"
 # pinetwork/pi-node-docker:latest
 #$global:CurrentContainer = "pi-consensus"
 #
-# pinetwork/pi-node-docker:protocol18
+# pinetwork/pi-node-docker:community-v1.0-p19.6
 #
 $global:CurrentContainer = "testnet2"
 Set-Variable -Name PICONTAINER -Value $global:CurrentContainer -Option Constant, AllScope -Force
@@ -42,7 +45,7 @@ $global:verbose=$false
 $global:computerip=$null
 $global:routerip=$null
 $global:computername=$null
-$VERSION = "0.03.20241018"
+$VERSION = "0.03.20251011"
 # testnet1 working directory
 # $StellarConfig = "$PIDIR\docker_volumes\stellar\core\etc\stellar-core.cfg"
 # testnet2 working directory
@@ -57,7 +60,7 @@ $options = @{
 $help = @"
     PINode Information usage: pini [-h] [-v]
  
-    Pi Node Information v.0.03.20241018
+    Pi Node Information v.0.03.20251011
  
     Pi Node script tool to collect Pi Node information
  
@@ -118,6 +121,7 @@ function Save-TextToLogFile
     else
     {
         Write-Host "Text file does not exist: $Text"
+        Write-Log "Text file does not exist: $Text"
     }
 }
 
@@ -141,7 +145,26 @@ function Is-AppRunning ($opt)
     if (-Not $?)
     {
         $msg = "ERROR: $opt not found!"
-        Write-Error -Message $msg -Category ObjectNotFound
+        Write-Warning -Message $msg -Category ObjectNotFound
+    }
+}
+
+function Check-RunWindowsVer 
+{
+    $osVersion = (Get-CimInstance -ClassName Win32_OperatingSystem).Version
+    $buildNumber = [int]($osVersion.Split('.')[2])
+
+    if ($buildNumber -ge 22000)
+    {
+        Is-AppRunning("vmmemwsl")
+    }
+    elseif ($buildNumber -ge 10240 -and $buildNumber -lt 22000)
+    {
+        Is-AppRunning("vmmem")
+    }
+    else
+    {
+        Write-Log "Unknown Windows version"
     }
 }
 
@@ -247,6 +270,53 @@ function Get-PublicIP
     }
 }
 
+
+function Check-VirtualizationAndHyperV
+{
+    # Check virtualization status
+    $virtualizationInfo = systeminfo | Select-String "Virtualization Enabled In Firmware"
+    if ($virtualizationInfo -match "Yes")
+    {
+        Write-Host "✅ Virtualization is enabled in firmware."
+    } elseif ($virtualizationInfo -match "No")
+    {
+        Write-Host "❌ Virtualization is NOT enabled in firmware."
+    }
+    else
+    {
+        Write-Host "⚠️ Unable to determine virtualization status."
+    }
+
+    # Check Hyper-V support
+    $hyperVInfo = systeminfo | Select-String "Hyper-V Requirements"
+    if ($hyperVInfo)
+    {
+        $requirementsMet = $true
+        foreach ($line in $hyperVInfo)
+        {
+            if ($line -match "No")
+            {
+                $requirementsMet = $false
+                break
+            }
+        }
+
+        if ($requirementsMet)
+        {
+            Write-Host "✅ Hyper-V is supported and all requirements are met."
+        }
+        else
+        {
+            Write-Host "⚠️ Hyper-V is NOT fully supported or some requirements are missing."
+        }
+    }
+    else
+    {
+        Write-Host "⚠️ Unable to determine Hyper-V support."
+    }
+}
+
+
 function Get-OSInformation
 {
     Write-Log "Check OS details information"
@@ -325,7 +395,8 @@ function Get-OSInformation
     Write-Host "$d"
 
     Write-Host "           Pi App & vmmem"
-    Is-AppRunning("vmmem")
+    Check-RunWindowsVer
+    Check-VirtualizationAndHyperV
     Is-AppRunning("Pi Network")
     Is-AppRunning("wsl")
     Write-Log "wsl --list --verbose"
@@ -755,6 +826,12 @@ $PiNodeEntry["ProtocolVersion"] = Get-ConsensusValue $ff $key
 $text=-join("Stellar-core protocol version:", [string]$PiNodeEntry["ProtocolVersion"])
 Write-Host2-With-Color -text "Stellar-core protocol version:", $PiNodeEntry["ProtocolVersion"] -color White, "Magenta"
 Write-Log $text
+
+#$key = "history_failure_rate"
+#$PiNodeEntry["ErrorRate"] = Get-ConsensusValue $ff $key
+#$text=-join("Session error rate:", $PiNodeEntry["ErrorRate"])
+#Write-Host $text
+#Write-Log $text
 
 $key = "critical"
 $PiNodeEntry["QuorumIntersection"] = Get-ConsensusValue $ff $key
